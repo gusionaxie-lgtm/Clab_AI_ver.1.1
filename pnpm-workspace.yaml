@@ -33,6 +33,12 @@ minimumReleaseAgeExclude:
   # this setting guards against does not apply to our own packages.
   - '@replit/*'
   - stripe-replit-sync
+  - '@clerk/react'
+  - '@clerk/express'
+  - '@clerk/shared'
+  - '@clerk/types'
+  - '@clerk/backend'
+  - '@clerk/clerk-js'
 
 packages:
   - artifacts/*
