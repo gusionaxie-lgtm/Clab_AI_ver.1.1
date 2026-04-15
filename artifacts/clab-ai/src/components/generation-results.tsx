@@ -2,16 +2,16 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Check, Copy, X } from "lucide-react";
+import { Check, Copy, X, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface NameSuggestion {
+interface NameIdea {
   name: string;
   ticker: string;
   description: string;
 }
 
-interface TickerSuggestion {
+interface TickerIdea {
   ticker: string;
   rationale: string;
 }
@@ -20,7 +20,7 @@ interface GenerationResultsProps {
   open: boolean;
   onClose: () => void;
   contentType: "name" | "ticker" | null;
-  content: any;
+  ideas: NameIdea[] | TickerIdea[] | null;
   onApplyName?: (name: string, ticker?: string) => void;
   onApplyTicker?: (ticker: string) => void;
 }
@@ -29,13 +29,13 @@ export function GenerationResultsDialog({
   open,
   onClose,
   contentType,
-  content,
+  ideas,
   onApplyName,
   onApplyTicker,
 }: GenerationResultsProps) {
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
-  const copyToClipboard = (text: string, idx: number) => {
+  const copy = (text: string, idx: number) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopiedIdx(idx);
       setTimeout(() => setCopiedIdx(null), 1500);
@@ -43,52 +43,29 @@ export function GenerationResultsDialog({
   };
 
   const renderContent = () => {
-    if (!content) {
+    if (!ideas || !Array.isArray(ideas) || ideas.length === 0) {
       return (
-        <p className="text-sm text-muted-foreground font-mono text-center py-8">
-          No results available.
-        </p>
+        <div className="flex flex-col items-center gap-3 py-10 text-center">
+          <AlertTriangle className="h-6 w-6 text-yellow-500" />
+          <p className="text-sm text-muted-foreground font-mono">
+            Something went wrong. Please retry.
+          </p>
+        </div>
       );
     }
 
     if (contentType === "name") {
-      let suggestions: NameSuggestion[] = [];
-
-      try {
-        if (Array.isArray(content)) {
-          suggestions = content;
-        } else if (typeof content === "string") {
-          const parsed = JSON.parse(content);
-          suggestions = Array.isArray(parsed) ? parsed : (parsed?.content ?? []);
-        } else if (typeof content === "object" && Array.isArray(content.content)) {
-          suggestions = content.content;
-        }
-      } catch {
-        // Fallback: plain text
-        return (
-          <div className="space-y-3">
-            <p className="text-xs text-muted-foreground font-mono">Raw output (regenerate for structured view):</p>
-            <pre className="text-sm text-white whitespace-pre-wrap font-mono bg-black/30 p-4 border border-border/50 rounded-sm">
-              {String(content)}
-            </pre>
-          </div>
-        );
-      }
-
-      if (!suggestions.length) {
-        return <p className="text-sm text-muted-foreground text-center py-8">No suggestions returned.</p>;
-      }
-
+      const names = ideas as NameIdea[];
       return (
         <div className="space-y-3">
-          {suggestions.map((s, i) => (
+          {names.map((s, i) => (
             <div
               key={i}
-              className="glass-card rounded-none border border-border p-4 space-y-2 hover:border-primary/40 transition-colors group"
+              className="glass-card rounded-none border border-border p-4 space-y-2 hover:border-primary/40 transition-colors"
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-white text-base">{s.name || "—"}</span>
+                  <span className="font-bold text-white text-base">{s.name}</span>
                   {s.ticker && (
                     <Badge
                       variant="outline"
@@ -103,7 +80,7 @@ export function GenerationResultsDialog({
                     size="sm"
                     variant="ghost"
                     className="h-7 w-7 p-0 rounded-none hover:bg-white/5"
-                    onClick={() => copyToClipboard(`${s.name}${s.ticker ? ` / $${s.ticker}` : ""}`, i)}
+                    onClick={() => copy(`${s.name}${s.ticker ? ` / $${s.ticker}` : ""}`, i)}
                     title="Copy"
                   >
                     {copiedIdx === i ? (
@@ -116,17 +93,16 @@ export function GenerationResultsDialog({
                     <Button
                       size="sm"
                       className="h-7 px-3 rounded-none text-xs bg-primary/10 border border-primary/40 text-primary hover:bg-primary/20 font-mono"
-                      onClick={() => {
-                        onApplyName(s.name, s.ticker);
-                        onClose();
-                      }}
+                      onClick={() => { onApplyName(s.name, s.ticker); onClose(); }}
                     >
                       Use This
                     </Button>
                   )}
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground leading-relaxed">{s.description || ""}</p>
+              {s.description && (
+                <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
+              )}
             </div>
           ))}
         </div>
@@ -134,44 +110,22 @@ export function GenerationResultsDialog({
     }
 
     if (contentType === "ticker") {
-      let suggestions: TickerSuggestion[] = [];
-
-      try {
-        if (Array.isArray(content)) {
-          suggestions = content;
-        } else if (typeof content === "string") {
-          const parsed = JSON.parse(content);
-          suggestions = Array.isArray(parsed) ? parsed : (parsed?.content ?? []);
-        } else if (typeof content === "object" && Array.isArray(content.content)) {
-          suggestions = content.content;
-        }
-      } catch {
-        return (
-          <pre className="text-sm text-white whitespace-pre-wrap font-mono bg-black/30 p-4 border border-border/50 rounded-sm">
-            {String(content)}
-          </pre>
-        );
-      }
-
-      if (!suggestions.length) {
-        return <p className="text-sm text-muted-foreground text-center py-8">No suggestions returned.</p>;
-      }
-
+      const tickers = ideas as TickerIdea[];
       return (
         <div className="space-y-3">
-          {suggestions.map((s, i) => (
+          {tickers.map((s, i) => (
             <div
               key={i}
               className="glass-card rounded-none border border-border p-4 space-y-2 hover:border-primary/40 transition-colors"
             >
               <div className="flex items-center justify-between gap-3">
-                <span className="font-bold text-primary text-xl font-mono">${s.ticker || "—"}</span>
-                <div className="flex items-center gap-1.5">
+                <span className="font-bold text-primary text-2xl font-mono">${s.ticker}</span>
+                <div className="flex items-center gap-1.5 shrink-0">
                   <Button
                     size="sm"
                     variant="ghost"
                     className="h-7 w-7 p-0 rounded-none hover:bg-white/5"
-                    onClick={() => copyToClipboard(s.ticker, i)}
+                    onClick={() => copy(s.ticker, i)}
                   >
                     {copiedIdx === i ? (
                       <Check className="h-3 w-3 text-primary" />
@@ -183,17 +137,16 @@ export function GenerationResultsDialog({
                     <Button
                       size="sm"
                       className="h-7 px-3 rounded-none text-xs bg-primary/10 border border-primary/40 text-primary hover:bg-primary/20 font-mono"
-                      onClick={() => {
-                        onApplyTicker(s.ticker);
-                        onClose();
-                      }}
+                      onClick={() => { onApplyTicker(s.ticker); onClose(); }}
                     >
                       Use This
                     </Button>
                   )}
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">{s.rationale || ""}</p>
+              {s.rationale && (
+                <p className="text-xs text-muted-foreground">{s.rationale}</p>
+              )}
             </div>
           ))}
         </div>
@@ -203,11 +156,11 @@ export function GenerationResultsDialog({
     return null;
   };
 
-  const title = contentType === "name" ? "Name Suggestions" : "Ticker Suggestions";
+  const title = contentType === "name" ? "NAME_IDEAS" : "TICKER_IDEAS";
   const description =
     contentType === "name"
-      ? "5 AI-generated meme coin names. Click 'Use This' to apply or copy for later."
-      : "5 AI-generated ticker symbols. Click 'Use This' to apply.";
+      ? "5 AI-generated meme coin names. Pick one and click Use This."
+      : "5 AI-generated ticker symbols. Pick one and click Use This.";
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -215,9 +168,7 @@ export function GenerationResultsDialog({
         <DialogHeader className="p-5 pb-4 border-b border-border/50">
           <div className="flex items-center justify-between">
             <div>
-              <DialogTitle className="font-mono text-white text-base">
-                {title.toUpperCase().replace(" ", "_")}
-              </DialogTitle>
+              <DialogTitle className="font-mono text-white text-base">{title}</DialogTitle>
               <DialogDescription className="text-muted-foreground text-xs mt-1">
                 {description}
               </DialogDescription>
@@ -232,9 +183,7 @@ export function GenerationResultsDialog({
             </Button>
           </div>
         </DialogHeader>
-        <div className="p-5 max-h-[60vh] overflow-y-auto space-y-1">
-          {renderContent()}
-        </div>
+        <div className="p-5 max-h-[60vh] overflow-y-auto">{renderContent()}</div>
       </DialogContent>
     </Dialog>
   );

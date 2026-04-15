@@ -8,15 +8,26 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScoreGauge, ProgressBar } from "@/components/score-gauge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Sparkles, Download, RefreshCcw, Activity, ShieldAlert, CheckCircle2 } from "lucide-react";
+import {
+  ArrowLeft, Sparkles, Download, RefreshCcw, Activity,
+  ShieldAlert, CheckCircle2, BookOpen, Map, Mic, Twitter,
+  HelpCircle, AlertTriangle,
+} from "lucide-react";
 import AiChat from "@/components/ai-chat";
-import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { RiskReportPanel } from "@/components/risk-report-panel";
 import { GenerationResultsDialog } from "@/components/generation-results";
+import {
+  LoreRenderer,
+  RoadmapRenderer,
+  BrandVoiceRenderer,
+  LaunchThreadRenderer,
+  FaqRenderer,
+  ContentCard,
+} from "@/components/content-renderers";
 
-interface GenerationResult {
-  contentType: "name" | "ticker" | string;
-  content: any;
+interface SuggestionState {
+  contentType: "name" | "ticker";
+  ideas: any[];
 }
 
 export default function ProjectDetail() {
@@ -24,7 +35,7 @@ export default function ProjectDetail() {
   const id = parseInt(params.id || "0", 10);
   const { toast } = useToast();
 
-  const [generationResult, setGenerationResult] = useState<GenerationResult | null>(null);
+  const [suggestion, setSuggestion] = useState<SuggestionState | null>(null);
   const [activeTab, setActiveTab] = useState("details");
 
   const { data: project, isLoading, refetch } = useGetProject(id, {
@@ -42,30 +53,24 @@ export default function ProjectDetail() {
       { id, data: { contentType } },
       {
         onSuccess: (data: any) => {
-          // Name and ticker show a suggestions dialog — don't save to project
           if (contentType === "name" || contentType === "ticker") {
-            setGenerationResult({ contentType, content: data?.content });
+            const ideas = Array.isArray(data?.ideas) ? data.ideas : [];
+            if (ideas.length === 0) {
+              toast({ variant: "destructive", title: "No results", description: "Something went wrong. Please retry." });
+              return;
+            }
+            setSuggestion({ contentType: contentType as "name" | "ticker", ideas });
             return;
           }
 
-          toast({
-            title: "Generation Complete",
-            description: `Successfully generated ${contentType}.`,
-          });
-
-          // Navigate to the right tab after generation
-          if (contentType === "riskReport") setActiveTab("details");
-          if (["lore", "roadmap", "brandVoice", "launchThread", "faq"].includes(contentType)) {
-            setActiveTab("details");
-          }
-
+          toast({ title: "Generated", description: `${contentType} generated successfully.` });
           refetch();
         },
         onError: () => {
           toast({
             variant: "destructive",
             title: "Generation Failed",
-            description: `Failed to generate ${contentType}. Please try again.`,
+            description: "Something went wrong. Please retry.",
           });
         },
       }
@@ -74,10 +79,7 @@ export default function ProjectDetail() {
 
   const handleApplyName = async (name: string, ticker?: string) => {
     try {
-      await updateProject.mutateAsync({
-        id,
-        data: { name, ...(ticker ? { ticker } : {}) },
-      });
+      await updateProject.mutateAsync({ id, data: { name, ...(ticker ? { ticker } : {}) } });
       toast({ title: "Name Applied", description: `Project name set to "${name}".` });
       refetch();
     } catch {
@@ -100,10 +102,10 @@ export default function ProjectDetail() {
       const result = await exportPlan();
       if (result.data) {
         await navigator.clipboard.writeText(JSON.stringify(result.data, null, 2));
-        toast({ title: "Export Copied", description: "Launch plan JSON copied to clipboard." });
+        toast({ title: "Copied", description: "Launch plan JSON copied to clipboard." });
       }
     } catch {
-      toast({ variant: "destructive", title: "Export Failed", description: "Failed to export launch plan." });
+      toast({ variant: "destructive", title: "Export Failed" });
     }
   };
 
@@ -139,16 +141,26 @@ export default function ProjectDetail() {
 
   const p = project as any;
 
+  const hasLore = Boolean(p.lore);
+  const hasRoadmap = Boolean(p.roadmap);
+  const hasBrandVoice = Boolean(p.brandVoice);
+  const hasThread = Boolean(p.launchThread);
+  const hasFaq = Boolean(p.faq);
+  const hasRisk = Boolean(p.riskReport);
+  const hasAnyContent = hasLore || hasRoadmap || hasBrandVoice || hasThread || hasFaq || hasRisk;
+
   const GENERATOR_ACTIONS = [
-    { id: "name", label: "Name Ideas", description: "5 name suggestions", icon: "✦" },
-    { id: "ticker", label: "Ticker Ideas", description: "5 ticker options", icon: "$" },
-    { id: "lore", label: "Origin Lore", description: "Origin story", icon: "📜" },
-    { id: "roadmap", label: "90-Day Roadmap", description: "Launch phases", icon: "🗓" },
-    { id: "brandVoice", label: "Brand Voice", description: "Tone guide", icon: "📣" },
-    { id: "launchThread", label: "Launch Thread", description: "Twitter/X thread", icon: "🧵" },
-    { id: "faq", label: "FAQ", description: "10 Q&A pairs", icon: "❓" },
-    { id: "riskReport", label: "Risk Report", description: "Full risk analysis", icon: "⚠" },
+    { id: "name", label: "Name Ideas", description: "5 name suggestions", icon: "✦", done: Boolean(project.name) },
+    { id: "ticker", label: "Ticker Ideas", description: "5 ticker options", icon: "$", done: Boolean(project.ticker) },
+    { id: "lore", label: "Origin Lore", description: "Origin story", icon: <BookOpen className="h-4 w-4" />, done: hasLore },
+    { id: "roadmap", label: "90-Day Roadmap", description: "Launch phases", icon: <Map className="h-4 w-4" />, done: hasRoadmap },
+    { id: "brandVoice", label: "Brand Voice", description: "Tone guide", icon: <Mic className="h-4 w-4" />, done: hasBrandVoice },
+    { id: "launchThread", label: "Launch Thread", description: "Twitter/X thread", icon: <Twitter className="h-4 w-4" />, done: hasThread },
+    { id: "faq", label: "FAQ", description: "10 Q&A pairs", icon: <HelpCircle className="h-4 w-4" />, done: hasFaq },
+    { id: "riskReport", label: "Risk Report", description: "Full risk analysis", icon: <AlertTriangle className="h-4 w-4" />, done: hasRisk },
   ];
+
+  const isGenerating = generateContent.isPending;
 
   return (
     <Layout>
@@ -172,14 +184,13 @@ export default function ProjectDetail() {
               )}
             </div>
             <p className="text-muted-foreground font-mono text-sm mt-1">
-              ID: {project.id} | STATUS:{" "}
-              <span className="text-primary">ACTIVE</span>
+              ID: {project.id} | STATUS: <span className="text-primary">ACTIVE</span>
             </p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left/Main column */}
+          {/* Main column */}
           <div className="lg:col-span-2 space-y-6">
             {/* Launch Scores */}
             <Card className="glass-card rounded-none border-border">
@@ -194,9 +205,9 @@ export default function ProjectDetail() {
                     size="sm"
                     className="h-8 rounded-none font-mono text-xs border-primary/50 text-primary hover:bg-primary/10"
                     onClick={() => handleGenerate("scores")}
-                    disabled={generateContent.isPending}
+                    disabled={isGenerating}
                   >
-                    {generateContent.isPending ? (
+                    {isGenerating ? (
                       <RefreshCcw className="mr-2 h-3 w-3 animate-spin" />
                     ) : (
                       <Sparkles className="mr-2 h-3 w-3" />
@@ -226,7 +237,7 @@ export default function ProjectDetail() {
                     {project.scores.analysis && (
                       <div className="pt-4 border-t border-border/50">
                         <p className="text-xs font-mono text-muted-foreground uppercase mb-2">Score Analysis</p>
-                        <MarkdownRenderer content={project.scores.analysis} className="text-white text-sm" />
+                        <p className="text-sm text-white leading-relaxed">{project.scores.analysis}</p>
                       </div>
                     )}
                   </div>
@@ -238,7 +249,7 @@ export default function ProjectDetail() {
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className="w-full justify-start rounded-none bg-black/20 border-b border-border p-0 h-auto overflow-x-auto flex-nowrap">
                 {[
-                  { id: "details", label: "Project Data" },
+                  { id: "details", label: "Content" },
                   { id: "actions", label: "Generator" },
                   { id: "scenarios", label: "Scenarios" },
                   { id: "export", label: "Export" },
@@ -253,48 +264,92 @@ export default function ProjectDetail() {
                 ))}
               </TabsList>
 
-              {/* Project Data Tab */}
+              {/* Content Tab */}
               <TabsContent value="details" className="mt-4 space-y-4">
-                <ContentSection label="CORE_IDEA" content={project.idea} />
-                {p.narrative && <ContentSection label="NARRATIVE" content={p.narrative} />}
-                {p.lore && <ContentSection label="LORE" content={p.lore} />}
-                {p.roadmap && <ContentSection label="ROADMAP" content={p.roadmap} />}
-                {p.brandVoice && <ContentSection label="BRAND_VOICE" content={p.brandVoice} />}
-                {p.launchThread && <ContentSection label="LAUNCH_THREAD" content={p.launchThread} />}
-                {p.faq && <ContentSection label="FAQ" content={p.faq} />}
+                {/* Core Idea — always visible */}
+                <ContentCard label="CORE_IDEA">
+                  <p className="text-sm text-white/90 leading-relaxed">{project.idea || "No idea set."}</p>
+                </ContentCard>
 
-                {/* Risk Report — special structured rendering */}
-                {p.riskReport && (
-                  <Card className="glass-card rounded-none border-border">
-                    <CardHeader className="border-b border-border/50 pb-3">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-sm font-mono text-muted-foreground flex items-center gap-2">
-                          <ShieldAlert className="h-4 w-4 text-red-400" />
-                          RISK_REPORT
-                        </CardTitle>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-[10px] font-mono text-muted-foreground hover:text-primary rounded-none"
-                          onClick={() => handleGenerate("riskReport")}
-                          disabled={generateContent.isPending}
-                        >
-                          <RefreshCcw className="mr-1 h-3 w-3" /> Regenerate
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="pt-4">
-                      <RiskReportPanel rawReport={p.riskReport} />
-                    </CardContent>
-                  </Card>
+                {hasLore && (
+                  <ContentCard
+                    label="LORE"
+                    icon={<BookOpen className="h-3.5 w-3.5" />}
+                    onRegenerate={() => handleGenerate("lore")}
+                    isRegenerating={isGenerating}
+                  >
+                    <LoreRenderer raw={p.lore} />
+                  </ContentCard>
                 )}
 
-                {!p.lore && !p.narrative && !p.roadmap && !p.riskReport && (
+                {hasRoadmap && (
+                  <ContentCard
+                    label="90-DAY_ROADMAP"
+                    icon={<Map className="h-3.5 w-3.5" />}
+                    onRegenerate={() => handleGenerate("roadmap")}
+                    isRegenerating={isGenerating}
+                  >
+                    <RoadmapRenderer raw={p.roadmap} />
+                  </ContentCard>
+                )}
+
+                {hasBrandVoice && (
+                  <ContentCard
+                    label="BRAND_VOICE"
+                    icon={<Mic className="h-3.5 w-3.5" />}
+                    onRegenerate={() => handleGenerate("brandVoice")}
+                    isRegenerating={isGenerating}
+                  >
+                    <BrandVoiceRenderer raw={p.brandVoice} />
+                  </ContentCard>
+                )}
+
+                {hasThread && (
+                  <ContentCard
+                    label="LAUNCH_THREAD"
+                    icon={<Twitter className="h-3.5 w-3.5" />}
+                    onRegenerate={() => handleGenerate("launchThread")}
+                    isRegenerating={isGenerating}
+                  >
+                    <LaunchThreadRenderer raw={p.launchThread} />
+                  </ContentCard>
+                )}
+
+                {hasFaq && (
+                  <ContentCard
+                    label="FAQ"
+                    icon={<HelpCircle className="h-3.5 w-3.5" />}
+                    onRegenerate={() => handleGenerate("faq")}
+                    isRegenerating={isGenerating}
+                  >
+                    <FaqRenderer raw={p.faq} />
+                  </ContentCard>
+                )}
+
+                {hasRisk && (
+                  <ContentCard
+                    label="RISK_REPORT"
+                    icon={<ShieldAlert className="h-3.5 w-3.5 text-red-400" />}
+                    onRegenerate={() => handleGenerate("riskReport")}
+                    isRegenerating={isGenerating}
+                  >
+                    <RiskReportPanel rawReport={p.riskReport} />
+                  </ContentCard>
+                )}
+
+                {!hasAnyContent && (
                   <Card className="glass-card border-dashed border-border/50 rounded-none bg-transparent">
-                    <CardContent className="flex flex-col items-center justify-center h-32 text-center space-y-2">
+                    <CardContent className="flex flex-col items-center justify-center h-36 text-center space-y-3">
                       <Sparkles className="h-6 w-6 text-muted-foreground" />
                       <p className="text-sm text-muted-foreground">
-                        No generated content yet. Go to the <button className="text-primary underline" onClick={() => setActiveTab("actions")}>Generator tab</button> to create content.
+                        No generated content yet.{" "}
+                        <button
+                          className="text-primary underline underline-offset-2"
+                          onClick={() => setActiveTab("actions")}
+                        >
+                          Open the Generator
+                        </button>{" "}
+                        to create lore, roadmap, FAQ, and more.
                       </p>
                     </CardContent>
                   </Card>
@@ -307,44 +362,34 @@ export default function ProjectDetail() {
                   <CardHeader>
                     <CardTitle className="text-sm font-mono">AI_GENERATOR_PANEL</CardTitle>
                     <CardDescription className="text-xs">
-                      Generate individual strategy components. Name/Ticker show suggestions — pick your favorite.
+                      Generate individual strategy components. Name and Ticker show suggestion cards — you pick the best one.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      {GENERATOR_ACTIONS.map((action) => {
-                        const isDone = Boolean(
-                          action.id === "name" ? project.name :
-                          action.id === "ticker" ? project.ticker :
-                          action.id === "lore" ? p.lore :
-                          action.id === "roadmap" ? p.roadmap :
-                          action.id === "brandVoice" ? p.brandVoice :
-                          action.id === "launchThread" ? p.launchThread :
-                          action.id === "faq" ? p.faq :
-                          action.id === "riskReport" ? p.riskReport : false
-                        );
-                        return (
-                          <Button
-                            key={action.id}
-                            variant="outline"
-                            className="rounded-none border-border bg-black/20 hover:bg-primary/10 hover:text-primary hover:border-primary/50 font-mono text-xs h-auto py-4 flex flex-col gap-1.5 items-center text-center whitespace-normal relative"
-                            onClick={() => handleGenerate(action.id)}
-                            disabled={generateContent.isPending}
-                          >
-                            {isDone && (
-                              <CheckCircle2 className="absolute top-2 right-2 h-3 w-3 text-primary opacity-70" />
-                            )}
-                            <span className="text-base">{action.icon}</span>
-                            <span className="font-bold">{action.label}</span>
-                            <span className="text-muted-foreground text-[10px] font-normal">{action.description}</span>
-                          </Button>
-                        );
-                      })}
+                      {GENERATOR_ACTIONS.map((action) => (
+                        <Button
+                          key={action.id}
+                          variant="outline"
+                          className="rounded-none border-border bg-black/20 hover:bg-primary/10 hover:text-primary hover:border-primary/50 font-mono text-xs h-auto py-4 flex flex-col gap-1.5 items-center text-center relative"
+                          onClick={() => handleGenerate(action.id)}
+                          disabled={isGenerating}
+                        >
+                          {action.done && (
+                            <CheckCircle2 className="absolute top-2 right-2 h-3 w-3 text-primary opacity-70" />
+                          )}
+                          <span className="text-base">
+                            {typeof action.icon === "string" ? action.icon : action.icon}
+                          </span>
+                          <span className="font-bold">{action.label}</span>
+                          <span className="text-muted-foreground text-[10px] font-normal">{action.description}</span>
+                        </Button>
+                      ))}
                     </div>
-                    {generateContent.isPending && (
+                    {isGenerating && (
                       <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground font-mono">
                         <RefreshCcw className="h-3 w-3 animate-spin text-primary" />
-                        AI is generating content...
+                        AI is generating — please wait...
                       </div>
                     )}
                   </CardContent>
@@ -359,7 +404,7 @@ export default function ProjectDetail() {
                     <div>
                       <h3 className="font-mono font-bold text-lg">Scenario Simulator</h3>
                       <p className="text-sm text-muted-foreground mt-1 max-w-md">
-                        Run advanced predictive models to simulate how this meme coin might perform under different market conditions.
+                        Run predictive models to simulate how this coin performs under different market conditions.
                       </p>
                     </div>
                     <Link href={`/scenarios/${project.id}`}>
@@ -379,7 +424,7 @@ export default function ProjectDetail() {
                     <div>
                       <h3 className="font-mono font-bold text-lg">Export Launch Plan</h3>
                       <p className="text-sm text-muted-foreground mt-1 max-w-md">
-                        Compile all generated data, scores, and scenarios into a comprehensive JSON launch document.
+                        Compile all generated data, scores, and scenarios into a comprehensive JSON document.
                       </p>
                     </div>
                     <Button
@@ -395,36 +440,22 @@ export default function ProjectDetail() {
             </Tabs>
           </div>
 
-          {/* AI Chat Sidebar */}
+          {/* AI Chat sidebar */}
           <div className="lg:col-span-1 h-[calc(100vh-8rem)] sticky top-24">
             <AiChat projectId={project.id} initialConversationId={project.conversationId} />
           </div>
         </div>
       </div>
 
-      {/* Generation Results Dialog for name/ticker */}
+      {/* Suggestions dialog — name / ticker only */}
       <GenerationResultsDialog
-        open={generationResult?.contentType === "name" || generationResult?.contentType === "ticker"}
-        onClose={() => setGenerationResult(null)}
-        contentType={generationResult?.contentType as "name" | "ticker" | null}
-        content={generationResult?.content}
+        open={suggestion !== null}
+        onClose={() => setSuggestion(null)}
+        contentType={suggestion?.contentType ?? null}
+        ideas={suggestion?.ideas ?? null}
         onApplyName={handleApplyName}
         onApplyTicker={handleApplyTicker}
       />
     </Layout>
-  );
-}
-
-function ContentSection({ label, content }: { label: string; content?: string | null }) {
-  if (!content) return null;
-  return (
-    <Card className="glass-card rounded-none border-border">
-      <CardHeader className="pb-3 border-b border-border/30">
-        <CardTitle className="text-xs font-mono text-muted-foreground uppercase">{label}</CardTitle>
-      </CardHeader>
-      <CardContent className="pt-4">
-        <MarkdownRenderer content={content} className="text-white" />
-      </CardContent>
-    </Card>
   );
 }
