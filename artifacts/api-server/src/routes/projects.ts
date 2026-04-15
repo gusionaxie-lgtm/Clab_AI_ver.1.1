@@ -161,11 +161,15 @@ ${profile ? `Creator Profile: Budget: ${profile.budget}, Risk Level: ${profile.r
 
     const contentRequests: Record<string, ContentRequest> = {
       name: {
-        instruction: "Generate 5 creative, memorable meme coin names for this project. Return JSON: { content: 'formatted list of 5 names with explanations' }",
+        instruction: `Generate exactly 5 creative, memorable meme coin names for this project. Return ONLY valid JSON in this exact format with no extra text:
+{"content": [{"name": "CoinName", "ticker": "TICKER", "description": "One sentence explaining the appeal and why this name works for the target audience"}]}
+Rules: names should be 2-4 words max, tickers 3-6 uppercase letters, descriptions under 20 words each.`,
         returnType: "names",
       },
       ticker: {
-        instruction: "Generate 5 potential ticker symbols (3-5 characters) for this meme coin. Return JSON: { content: 'formatted list of 5 tickers with reasoning' }",
+        instruction: `Generate exactly 5 ticker symbol options for this meme coin. Return ONLY valid JSON in this exact format:
+{"content": [{"ticker": "SYMBOL", "rationale": "Brief one-sentence reasoning for why this ticker is memorable and marketable"}]}
+Rules: tickers must be 3-6 uppercase letters only, no numbers or special characters.`,
         returnType: "tickers",
       },
       lore: {
@@ -185,11 +189,13 @@ ${profile ? `Creator Profile: Budget: ${profile.budget}, Risk Level: ${profile.r
         returnType: "launchThread",
       },
       faq: {
-        instruction: "Create a comprehensive FAQ (10 questions) that addresses common investor concerns about this meme coin project. Be transparent and honest. Return JSON: { content: 'formatted FAQ' }",
+        instruction: "Create a comprehensive FAQ (10 questions) that addresses common investor concerns about this meme coin project. Be transparent and honest. Return JSON: { content: 'formatted FAQ with Q: and A: format' }",
         returnType: "faq",
       },
       riskReport: {
-        instruction: "Generate a detailed risk analysis report covering market risks, execution risks, technical risks, and community risks. Be honest and thorough. Return JSON: { content: 'risk report' }",
+        instruction: `Generate a comprehensive risk analysis for this meme coin project. Return ONLY valid JSON in this exact format:
+{"content": {"summary": "2-3 sentence overall risk assessment and verdict", "overallRiskLevel": "High", "risks": [{"name": "Risk Name", "severity": "High", "likelihood": "High", "description": "What this risk means for the project in 1-2 sentences", "mitigation": "Specific actionable step to reduce this risk"}], "earlyWarningSignals": ["Signal to watch for 1", "Signal to watch for 2", "Signal to watch for 3"], "executionRisks": ["Specific execution challenge 1", "Specific execution challenge 2", "Specific execution challenge 3"]}}
+Include 5-7 risks covering market, execution, technical, and community categories. overallRiskLevel must be exactly "High", "Medium", or "Low". severity and likelihood must be exactly "High", "Medium", or "Low".`,
         returnType: "riskReport",
       },
       scores: {
@@ -243,8 +249,8 @@ ${profile ? `Creator Profile: Budget: ${profile.budget}, Risk Level: ${profile.r
       return res.json({ contentType, content: parsed.content ?? analysis, scores: savedScores });
     }
 
+    // name and ticker are suggestion-only — never saved to project fields directly
     const updateField: Record<string, string> = {
-      name: "name",
       lore: "lore",
       roadmap: "roadmap",
       brandVoice: "brandVoice",
@@ -254,8 +260,11 @@ ${profile ? `Creator Profile: Budget: ${profile.budget}, Risk Level: ${profile.r
     };
 
     if (updateField[contentType]) {
+      const valueToStore = typeof parsed.content === "object"
+        ? JSON.stringify(parsed.content)
+        : parsed.content;
       await db.update(projectsTable)
-        .set({ [updateField[contentType]]: parsed.content, updatedAt: new Date() })
+        .set({ [updateField[contentType]]: valueToStore, updatedAt: new Date() })
         .where(eq(projectsTable.id, id));
     }
 

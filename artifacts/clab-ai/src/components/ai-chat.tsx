@@ -18,6 +18,15 @@ interface ChatMessage {
   isError?: boolean;
 }
 
+const PRESET_PROMPTS = [
+  "Analyze this idea",
+  "What are the risks?",
+  "How can I improve this?",
+  "Is this viable long-term?",
+  "Give me a launch strategy",
+  "Break down weaknesses",
+];
+
 interface AiChatProps {
   projectId: number;
   initialConversationId?: number | null;
@@ -77,18 +86,22 @@ export default function AiChat({ projectId, initialConversationId }: AiChatProps
     });
   };
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const query = input.trim();
-    if (!query || isStreaming) return;
+  const sendPreset = (prompt: string) => {
+    if (isStreaming) return;
+    setInput(prompt);
+    // Use a tiny delay to let state update, then submit
+    setTimeout(() => {
+      const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
+      setInput("");
+      const userMsg: ChatMessage = { id: Date.now(), role: "user", content: prompt };
+      setMessages((prev) => [...prev, userMsg]);
+      setIsStreaming(true);
+      void sendMessage(prompt);
+    }, 0);
+  };
 
-    setInput("");
+  const sendMessage = async (query: string) => {
     setInitError(null);
-
-    const userMsg: ChatMessage = { id: Date.now(), role: "user", content: query };
-    setMessages((prev) => [...prev, userMsg]);
-    setIsStreaming(true);
-
     try {
       let currentConvId = conversationId;
 
@@ -98,38 +111,24 @@ export default function AiChat({ projectId, initialConversationId }: AiChatProps
           newConv = await createConversation.mutateAsync({
             data: { title: `Project ${projectId} Strategy Session` },
           });
-        } catch (err) {
+        } catch {
           pushError("Failed to initialize strategy session. Please try again.");
           setIsStreaming(false);
           return;
         }
-
         if (!newConv?.id) {
           pushError("Session initialization failed — no ID returned.");
           setIsStreaming(false);
           return;
         }
-
         currentConvId = newConv.id;
         setConversationId(currentConvId);
-
         try {
-          await updateProject.mutateAsync({
-            id: projectId,
-            data: { conversationId: currentConvId },
-          });
-        } catch {
-          // Non-fatal: project link failed but chat can still work
-        }
+          await updateProject.mutateAsync({ id: projectId, data: { conversationId: currentConvId } });
+        } catch { /* non-fatal */ }
       }
 
-      // Add streaming placeholder
-      const streamingPlaceholder: ChatMessage = {
-        id: "streaming",
-        role: "assistant",
-        content: "",
-      };
-      setMessages((prev) => [...prev, streamingPlaceholder]);
+      setMessages((prev) => [...prev, { id: "streaming", role: "assistant", content: "" } as ChatMessage]);
 
       const response = await fetch(
         `/api/openai/conversations/${currentConvId}/messages?projectId=${projectId}`,
@@ -143,76 +142,44 @@ export default function AiChat({ projectId, initialConversationId }: AiChatProps
 
       if (!response.ok) {
         let errMsg = `Strategist offline (${response.status}).`;
-        try {
-          const body = await response.json();
-          if (body?.error) errMsg = body.error;
-        } catch {
-          // ignore
-        }
+        try { const b = await response.json(); if (b?.error) errMsg = b.error; } catch { }
         pushError(errMsg);
         setIsStreaming(false);
         return;
       }
 
       const reader = response.body?.getReader();
-      if (!reader) {
-        pushError("Stream unavailable. Please retry.");
-        setIsStreaming(false);
-        return;
-      }
+      if (!reader) { pushError("Stream unavailable."); setIsStreaming(false); return; }
 
       const decoder = new TextDecoder();
       let buffer = "";
-
       while (true) {
-        let done: boolean;
-        let value: Uint8Array | undefined;
-
-        try {
-          ({ done, value } = await reader.read());
-        } catch {
-          pushError("Stream interrupted. The response may be incomplete.");
-          break;
-        }
-
+        let done: boolean; let value: Uint8Array | undefined;
+        try { ({ done, value } = await reader.read()); } catch { pushError("Stream interrupted."); break; }
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
-
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed.startsWith("data:")) continue;
-
           const dataStr = trimmed.slice(5).trim();
           if (!dataStr || dataStr === "[DONE]") continue;
-
           try {
             const data = JSON.parse(dataStr);
-
             if (typeof data.content === "string" && data.content.length > 0) {
               setMessages((prev) => {
                 const next = [...prev];
                 const last = next[next.length - 1];
-                if (last?.id === "streaming") {
-                  last.content += data.content;
-                }
+                if (last?.id === "streaming") last.content += data.content;
                 return next;
               });
             }
-
             if (data.done === true) {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === "streaming" ? { ...m, id: `msg-${Date.now()}` } : m
-                )
-              );
-              try { refetchConversation(); } catch { /* non-fatal */ }
+              setMessages((prev) => prev.map((m) => m.id === "streaming" ? { ...m, id: `msg-${Date.now()}` } : m));
+              try { refetchConversation(); } catch { }
             }
-          } catch {
-            // Incomplete JSON chunk — ignore
-          }
+          } catch { }
         }
       }
     } catch (err) {
@@ -221,6 +188,17 @@ export default function AiChat({ projectId, initialConversationId }: AiChatProps
     } finally {
       setIsStreaming(false);
     }
+  };
+
+  const handleSend = (e: React.FormEvent) => {
+    e.preventDefault();
+    const query = input.trim();
+    if (!query || isStreaming) return;
+    setInput("");
+    const userMsg: ChatMessage = { id: Date.now(), role: "user", content: query };
+    setMessages((prev) => [...prev, userMsg]);
+    setIsStreaming(true);
+    void sendMessage(query);
   };
 
   return (
@@ -240,13 +218,25 @@ export default function AiChat({ projectId, initialConversationId }: AiChatProps
       <CardContent className="flex-1 p-0 flex flex-col min-h-0">
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center space-y-4 text-muted-foreground opacity-50 py-16 min-h-[200px]">
-              <Bot className="h-10 w-10" />
-              <p className="text-sm font-mono">
-                Strategist initialized.
-                <br />
-                Ask for analysis, lore, or market strategy.
-              </p>
+            <div className="flex flex-col items-center justify-center h-full text-center space-y-4 py-8 min-h-[200px]">
+              <div className="text-muted-foreground/40">
+                <Bot className="h-10 w-10 mx-auto mb-3" />
+                <p className="text-sm font-mono text-muted-foreground/60">
+                  Strategist online. Select a prompt or type below.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-1.5 justify-center mt-2 px-2">
+                {PRESET_PROMPTS.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => sendPreset(p)}
+                    disabled={isStreaming}
+                    className="px-2.5 py-1 text-[10px] font-mono border border-border/60 text-muted-foreground hover:border-primary/60 hover:text-primary hover:bg-primary/5 rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
             messages.map((msg, i) => (
@@ -263,6 +253,22 @@ export default function AiChat({ projectId, initialConversationId }: AiChatProps
 
           <div ref={bottomRef} />
         </div>
+
+        {/* Preset chips shown when chat has messages too */}
+        {messages.length > 0 && (
+          <div className="px-3 pt-2 pb-0 flex gap-1.5 flex-wrap border-t border-border/30">
+            {PRESET_PROMPTS.map((p) => (
+              <button
+                key={p}
+                onClick={() => sendPreset(p)}
+                disabled={isStreaming}
+                className="px-2 py-0.5 text-[9px] font-mono border border-border/50 text-muted-foreground/70 hover:border-primary/50 hover:text-primary hover:bg-primary/5 rounded-sm transition-colors disabled:opacity-40 mb-1.5"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="p-3 border-t border-border/50 bg-black/20 shrink-0">
           <form onSubmit={handleSend} className="flex items-center gap-2">
